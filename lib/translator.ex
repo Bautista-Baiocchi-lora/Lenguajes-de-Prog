@@ -1,23 +1,17 @@
 defmodule Translator do
-  defmodule State do
-    defstruct translated_words: %{}, translated_docs: 0
-  end
-
   def start() do
     spawn(&loop/0)
   end
 
   def loop() do
-    loop(%{}, %State{})
+    loop(%{}, %Translator.State{})
   end
 
   def translate_word(translations, word) do
-    cond do
-      Map.has_key?(translations, word) ->
-        Map.get(translations, word)
-
-      true ->
-        "NULL"
+    if(Map.has_key?(translations, word)) do
+      Map.get(translations, word)
+    else
+      "NULL"
     end
   end
 
@@ -29,6 +23,27 @@ defmodule Translator do
     |> Enum.join(" ")
   end
 
+  def update_state(translation, state) do
+    new_frequency =
+      translation
+      |> String.split(" ")
+      |> Enum.frequencies()
+      |> Map.merge(state.word_frequency)
+
+    length =
+      translation
+      |> String.split(" ")
+      |> Kernel.length()
+
+    new_count =
+      case length > 1 do
+        true -> state.doc_count + 1
+        _ -> state.doc_count
+      end
+
+    %{state | word_frequency: new_frequency, doc_count: new_count}
+  end
+
   def loop(translations, state) do
     receive do
       {:register_translation, from, word, translation} ->
@@ -36,11 +51,12 @@ defmodule Translator do
         loop(Map.put(translations, word, translation), state)
 
       {:translate, from, words} ->
-        send(from, {:translation, translate_doc(translations, words)})
-        loop(translations, state)
+        translated_text = translate_doc(translations, words)
+        send(from, {:translation, translated_text})
+        loop(translations, update_state(translated_text, state))
 
       {:stats, from} ->
-        IO.puts("Stats requested")
+        send(from, {:stats, state})
         loop(translations, state)
 
       other ->
